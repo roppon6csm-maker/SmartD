@@ -812,7 +812,16 @@
             <button class="btn-action btn-save" onclick="importContactList()" style="margin-top: 6px;">連絡先リストを反映して保存<br><span style="font-size:9px;font-weight:normal;opacity:0.85;">インポート</span></button>
         </div>
 
-    </div>
+    
+        <div class="settings-group">
+            <label class="settings-label">■ Googleドライブ連携</label>
+            <span class="settings-desc">連絡先・出演者・テンプレートを、あなたのGoogleドライブ（このアプリ専用の領域）に自動で保存します。機種変更やブラウザのデータ消去でも、連携し直せば復元できます。</span>
+            <div id="drive-sync-status" style="font-size:12px; margin:6px 0; color:#2d3748;">未連携</div>
+            <button class="btn-action btn-save" onclick="sdLinkDrive()">Googleドライブと連携する</button>
+            <button class="btn-action btn-export" onclick="sdUploadToDrive(true)" style="margin-top: 6px;">今すぐ保存する</button>
+            <button class="btn-action btn-export" onclick="sdManualDownload()" style="margin-top: 6px;">ドライブから読み直す</button>
+        </div>
+</div>
 
     <div class="bottom-control-bar" style="display: none;">
         <div class="action-cell">
@@ -1638,5 +1647,173 @@
             return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
     </script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// ===== SmartD Googleドライブ連携 =====
+const SD_DRIVE_CLIENT_ID = "13131304475-se53hduaifb9r3qot4ahc2lelhtetlds.apps.googleusercontent.com";
+const SD_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+const SD_DRIVE_FILE_NAME = "smartd-data.json";
+const SD_DATA_KEYS = ["sd_matrix_artists", "sd_matrix_performers", "sd_matrix_templates"];
+let sdAccessToken = null;
+let sdTokenExpiresAt = 0;
+let sdDriveFileId = null;
+let sdUploadTimer = null;
+let sdApplyingRemote = false;
+
+const sdOrigSetItem = localStorage.setItem.bind(localStorage);
+localStorage.setItem = function(key, value) {
+    sdOrigSetItem(key, value);
+    if (!sdApplyingRemote && SD_DATA_KEYS.indexOf(key) >= 0) {
+        sdOrigSetItem("sd_local_updatedAt", String(Date.now()));
+        sdScheduleUpload();
+    }
+};
+
+function sdDriveStatus(text) {
+    const el = document.getElementById("drive-sync-status");
+    if (el) el.textContent = text;
+}
+function sdIsLinked() { return localStorage.getItem("sd_drive_linked") === "1"; }
+function sdRefreshDriveUI() {
+    if (!SD_DRIVE_CLIENT_ID) { sdDriveStatus("未設定（準備中です）"); return; }
+    if (sdIsLinked()) {
+        const t = Number(localStorage.getItem("sd_local_updatedAt") || 0);
+        sdDriveStatus("連携中" + (t ? "（この端末の最終変更：" + new Date(t).toLocaleString("ja-JP") + "）" : ""));
+    } else {
+        sdDriveStatus("未連携");
+    }
+}
+function sdScheduleUpload() {
+    if (!sdIsLinked() || !SD_DRIVE_CLIENT_ID) return;
+    if (sdUploadTimer) clearTimeout(sdUploadTimer);
+    sdUploadTimer = setTimeout(function() { sdUploadToDrive(false); }, 2000);
+}
+function sdGetToken(interactive) {
+    return new Promise(function(resolve, reject) {
+        if (sdAccessToken && Date.now() < sdTokenExpiresAt - 60000) { resolve(sdAccessToken); return; }
+        if (!window.google || !google.accounts || !google.accounts.oauth2) { reject(new Error("Google連携を読み込み中です。少し待ってお試しください")); return; }
+        const client = google.accounts.oauth2.initTokenClient({
+            client_id: SD_DRIVE_CLIENT_ID,
+            scope: SD_DRIVE_SCOPE,
+            callback: function(resp) {
+                if (resp && resp.access_token) {
+                    sdAccessToken = resp.access_token;
+                    sdTokenExpiresAt = Date.now() + (resp.expires_in || 3600) * 1000;
+                    resolve(sdAccessToken);
+                } else { reject(new Error("Googleの許可が得られませんでした")); }
+            },
+            error_callback: function() { reject(new Error("Googleの許可が得られませんでした")); }
+        });
+        client.requestAccessToken({ prompt: interactive ? "consent" : "" });
+    });
+}
+async function sdDriveFetch(path, options) {
+    const token = await sdGetToken(false);
+    const opts = options || {};
+    const headers = Object.assign({}, opts.headers || {}, { "Authorization": "Bearer " + token });
+    return fetch("https://www.googleapis.com" + path, Object.assign({}, opts, { headers: headers }));
+}
+async function sdFindFileId() {
+    if (sdDriveFileId) return sdDriveFileId;
+    const q = encodeURIComponent("name = '" + SD_DRIVE_FILE_NAME + "'");
+    const res = await sdDriveFetch("/drive/v3/files?spaces=appDataFolder&q=" + q + "&fields=files(id,name)");
+    if (!res.ok) throw new Error("ドライブの確認に失敗しました");
+    const data = await res.json();
+    if (data.files && data.files.length > 0) sdDriveFileId = data.files[0].id;
+    return sdDriveFileId;
+}
+function sdBuildPayload() {
+    const t = Number(localStorage.getItem("sd_local_updatedAt") || 0) || Date.now();
+    const payload = { app: "SmartD", savedAt: new Date(t).toISOString(), data: {} };
+    SD_DATA_KEYS.forEach(function(k) { payload.data[k] = localStorage.getItem(k); });
+    return payload;
+}
+async function sdUploadToDrive(manual) {
+    if (!SD_DRIVE_CLIENT_ID) { if (manual) sdDriveStatus("未設定（準備中です）"); return; }
+    if (!sdIsLinked()) { if (manual) sdDriveStatus("未連携です。先に「Googleドライブと連携する」を押してください"); return; }
+    try {
+        sdDriveStatus("ドライブへ保存中…");
+        const body = JSON.stringify(sdBuildPayload());
+        const fileId = await sdFindFileId();
+        let res;
+        if (fileId) {
+            res = await sdDriveFetch("/upload/drive/v3/files/" + fileId + "?uploadType=media", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body });
+        } else {
+            const boundary = "sd_boundary_9f2k";
+            const metadata = JSON.stringify({ name: SD_DRIVE_FILE_NAME, parents: ["appDataFolder"] });
+            const multipart = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata + "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" + body + "\r\n--" + boundary + "--";
+            res = await sdDriveFetch("/upload/drive/v3/files?uploadType=multipart&fields=id", { method: "POST", headers: { "Content-Type": "multipart/related; boundary=" + boundary }, body: multipart });
+            if (res.ok) { const j = await res.json(); sdDriveFileId = j.id; }
+        }
+        if (!res.ok) throw new Error("保存に失敗しました");
+        sdDriveStatus("連携中（保存しました：" + new Date().toLocaleString("ja-JP") + "）");
+    } catch (e) {
+        sdDriveStatus("保存できませんでした：" + e.message);
+    }
+}
+async function sdDownloadFromDrive() {
+    const fileId = await sdFindFileId();
+    if (!fileId) return null;
+    const res = await sdDriveFetch("/drive/v3/files/" + fileId + "?alt=media");
+    if (!res.ok) throw new Error("読み込みに失敗しました");
+    return await res.json();
+}
+function sdApplyPayload(payload) {
+    sdApplyingRemote = true;
+    try {
+        SD_DATA_KEYS.forEach(function(k) {
+            const v = payload.data ? payload.data[k] : null;
+            if (v !== null && v !== undefined) sdOrigSetItem(k, v);
+        });
+        const t = new Date(payload.savedAt).getTime();
+        sdOrigSetItem("sd_local_updatedAt", String(isNaN(t) ? Date.now() : t));
+    } finally { sdApplyingRemote = false; }
+}
+async function sdCheckRemoteOnStart() {
+    if (!SD_DRIVE_CLIENT_ID || !sdIsLinked()) { sdRefreshDriveUI(); return; }
+    try {
+        const payload = await sdDownloadFromDrive();
+        if (!payload) { sdUploadToDrive(false); return; }
+        const remoteTime = new Date(payload.savedAt).getTime() || 0;
+        const localTime = Number(localStorage.getItem("sd_local_updatedAt") || 0);
+        if (remoteTime > localTime) {
+            if (sessionStorage.getItem("sd_drive_applied") === payload.savedAt) { sdRefreshDriveUI(); return; }
+            sessionStorage.setItem("sd_drive_applied", payload.savedAt);
+            sdApplyPayload(payload);
+            location.reload();
+            return;
+        }
+        sdRefreshDriveUI();
+    } catch (e) {
+        sdDriveStatus("連携中（起動時の確認ができませんでした：" + e.message + "）");
+    }
+}
+async function sdLinkDrive() {
+    if (!SD_DRIVE_CLIENT_ID) { sdDriveStatus("未設定（準備中です）"); return; }
+    try {
+        await sdGetToken(true);
+        sdOrigSetItem("sd_drive_linked", "1");
+        sdDriveStatus("連携しました。ドライブのデータを確認中…");
+        await sdCheckRemoteOnStart();
+        sdUploadToDrive(false);
+    } catch (e) {
+        sdDriveStatus("連携できませんでした：" + e.message);
+    }
+}
+async function sdManualDownload() {
+    if (!SD_DRIVE_CLIENT_ID) { sdDriveStatus("未設定（準備中です）"); return; }
+    try {
+        const payload = await sdDownloadFromDrive();
+        if (!payload) { sdDriveStatus("ドライブにデータがありません"); return; }
+        if (!confirm("ドライブのデータ（" + new Date(payload.savedAt).toLocaleString("ja-JP") + " 保存）で、この端末のデータを置き換えます。よろしいですか？")) return;
+        sessionStorage.setItem("sd_drive_applied", payload.savedAt);
+        sdApplyPayload(payload);
+        location.reload();
+    } catch (e) {
+        sdDriveStatus("読み込めませんでした：" + e.message);
+    }
+}
+window.addEventListener("DOMContentLoaded", function() { setTimeout(sdCheckRemoteOnStart, 800); });
+</script>
 </body>
 </html>
