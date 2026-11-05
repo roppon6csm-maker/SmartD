@@ -1732,6 +1732,7 @@ async function sdUploadToDrive(manual) {
     if (!SD_DRIVE_CLIENT_ID) { if (manual) sdDriveStatus("未設定（準備中です）"); return; }
     if (!sdIsLinked()) { if (manual) sdDriveStatus("未連携です。先に「Googleドライブと連携する」を押してください"); return; }
     try {
+        if (manual) await sdGetToken(true);
         sdDriveStatus("ドライブへ保存中…");
         const body = JSON.stringify(sdBuildPayload());
         const fileId = await sdFindFileId();
@@ -1748,7 +1749,8 @@ async function sdUploadToDrive(manual) {
         if (!res.ok) throw new Error("保存に失敗しました");
         sdDriveStatus("連携中（保存しました：" + new Date().toLocaleString("ja-JP") + "）");
     } catch (e) {
-        sdDriveStatus("保存できませんでした：" + e.message);
+        if (manual) sdDriveStatus("保存できませんでした：" + e.message);
+        else sdRefreshDriveUI();
     }
 }
 async function sdDownloadFromDrive() {
@@ -1785,7 +1787,7 @@ async function sdCheckRemoteOnStart() {
         }
         sdRefreshDriveUI();
     } catch (e) {
-        sdDriveStatus("連携中（起動時の確認ができませんでした：" + e.message + "）");
+        sdRefreshDriveUI();
     }
 }
 async function sdLinkDrive() {
@@ -1803,6 +1805,7 @@ async function sdLinkDrive() {
 async function sdManualDownload() {
     if (!SD_DRIVE_CLIENT_ID) { sdDriveStatus("未設定（準備中です）"); return; }
     try {
+        await sdGetToken(true);
         const payload = await sdDownloadFromDrive();
         if (!payload) { sdDriveStatus("ドライブにデータがありません"); return; }
         if (!confirm("ドライブのデータ（" + new Date(payload.savedAt).toLocaleString("ja-JP") + " 保存）で、この端末のデータを置き換えます。よろしいですか？")) return;
