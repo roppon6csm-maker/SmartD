@@ -1710,7 +1710,18 @@ function sdRefreshDriveUI(flash) {
         return;
     }
     if (btnLink) btnLink.style.display = "none";
-    if (btnSync) { btnSync.style.display = ""; btnSync.disabled = sdSyncActive(); }
+    if (btnSync) {
+        btnSync.style.display = "";
+        if (sdSyncActive()) {
+            btnSync.disabled = true;
+            btnSync.style.opacity = "0.55";
+            btnSync.innerHTML = "同期中です<small style=\"display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;\">同期は約1時間続きます（" + sdFmtDateTime(sdTokenExpiresAt) + " まで）</small>";
+        } else {
+            btnSync.disabled = false;
+            btnSync.style.opacity = "";
+            btnSync.innerHTML = "ドライブとデータ同期する<small style=\"display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;\">同期時間は約1時間となります</small>";
+        }
+    }
     if (btnCheck) btnCheck.style.display = "";
     const notice = sdPendingNotice();
     if (notice && noticeEl) {
