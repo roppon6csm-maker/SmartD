@@ -719,15 +719,41 @@
     <div id="candidates-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:2000;">
         <div style="background:#fff; margin:4vh auto; width:min(94vw,520px); max-height:92vh; overflow-y:auto; border-radius:12px; padding:14px; box-sizing:border-box;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-weight:700; font-size:15px; color:#2d3748;">スクショからの候補</div>
+                <div style="font-weight:700; font-size:15px; color:#2d3748;">スクショから出演者を抜き出す</div>
                 <button class="btn-action btn-export" style="width:auto; padding:5px 14px; margin:0;" onclick="sdCloseCandidates()">閉じる</button>
             </div>
-            <div id="candidates-meta" style="font-size:12px; color:#4a5568; margin:6px 0;"></div>
-            <div style="font-size:11px; color:#718096; margin-bottom:6px;">読みが食い違った行には「要確認」が付きます。名前とよみがなは、その場で直せます。もともと登録されている名前は、何も変わりません。新しく登録されるのは名前とよみがなだけです。</div>
-            <div id="candidates-body"></div>
-            <div id="candidates-footer" style="display:none; margin-top:10px;">
-                <button class="btn-action btn-save" onclick="sdImportCandidates()">選択したものを管理表に入れる</button>
-                <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardCandidates()">候補を破棄する</button>
+            <style>@keyframes sdspin{to{transform:rotate(360deg)}}</style>
+            <div id="cand-view-start">
+                <div id="cand-result-banner" style="display:none; border:1px solid #2b6cb0; background:#ebf4fa; border-radius:8px; padding:8px 10px; font-size:13px; margin:8px 0; justify-content:space-between; align-items:center;">
+                    <span>前回の<b>解析結果が届いています</b></span>
+                    <button class="btn-action btn-save" style="width:auto; padding:5px 12px; margin:0;" onclick="sdShowCandResult()">結果を見る</button>
+                </div>
+                <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">他のライブのタイムテーブルのスクショを選んでください。解析が終わると候補リストが開きます。スクショは解析後に削除されます。</div>
+                <label for="cand-file" style="display:block; border:1.8px dashed #a0aec0; border-radius:10px; padding:20px 10px; text-align:center; font-size:14px; color:#4a5568; margin-bottom:10px;">タップしてスクショを選ぶ</label>
+                <input type="file" id="cand-file" accept="image/*" style="display:none;" onchange="sdCandFilePicked()">
+                <div id="cand-file-row" style="display:none; align-items:center; gap:10px; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:12px;">
+                    <img id="cand-thumb" style="width:34px; height:44px; object-fit:cover; border-radius:4px;" alt="">
+                    <div style="min-width:0;"><div id="cand-fname" style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div><div style="font-size:11px; color:#718096;">選択済み</div></div>
+                </div>
+                <button class="btn-action btn-save" id="cand-analyze-btn" onclick="sdStartAnalysis()" disabled style="opacity:.5;">解析する</button>
+                <div id="cand-start-msg" style="font-size:12px; color:#4a5568; margin-top:8px;"></div>
+                <div style="font-size:11px; color:#718096; margin-top:8px;">家のPC（ComfyUI）が起動している必要があります。解析には数分かかります。</div>
+            </div>
+            <div id="cand-view-analyzing" style="display:none; text-align:center; padding:18px 0 8px;">
+                <div style="width:38px; height:38px; border-radius:50%; border:4px solid #e2e8f0; border-top-color:#2b6cb0; margin:0 auto 12px; animation:sdspin 1s linear infinite;"></div>
+                <div style="font-size:15px; font-weight:700; color:#2d3748; margin-bottom:6px;">解析中です</div>
+                <div style="font-size:13px; color:#4a5568; line-height:1.55;">Qwenがタイムテーブルを読み取っています。<br>そのままお待ちください（数分かかります）。</div>
+                <div id="cand-analyzing-msg" style="font-size:12px; color:#718096; margin-top:10px;"></div>
+                <button class="btn-action btn-export" style="margin-top:14px;" onclick="sdCloseCandidates()">閉じる（解析は続きます）</button>
+            </div>
+            <div id="cand-view-list" style="display:none;">
+                <div id="candidates-meta" style="font-size:12px; color:#4a5568; margin:6px 0;"></div>
+                <div style="font-size:11px; color:#718096; margin-bottom:6px;">読みが食い違った行には「要確認」が付きます。名前とよみがなは、その場で直せます。もともと登録されている名前は、何も変わりません。新しく登録されるのは名前とよみがなだけです。</div>
+                <div id="candidates-body"></div>
+                <div id="candidates-footer" style="display:none; margin-top:10px;">
+                    <button class="btn-action btn-save" onclick="sdImportCandidates()">選択したものを管理表に入れる</button>
+                    <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardCandidates()">候補を破棄する</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1969,30 +1995,116 @@ async function sdManualDownload() {
 // ===== スクショ候補（モコの解析結果） =====
 let sdCandCurrent = null;
 function sdCandConsumedAt() { return localStorage.getItem("sd_candidates_consumed") || ""; }
+function sdShowCandView(name) {
+    ["start", "analyzing", "list"].forEach(function(v) {
+        document.getElementById("cand-view-" + v).style.display = (v === name) ? "" : "none";
+    });
+}
 function sdOpenCandidates() {
     const ov = document.getElementById("candidates-overlay");
     ov.style.display = "block";
-    document.getElementById("candidates-meta").textContent = "";
-    document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>ドライブを確認しています…</div>";
-    document.getElementById("candidates-footer").style.display = "none";
+    sdShowCandView("start");
+    const fi = document.getElementById("cand-file");
+    if (fi) fi.value = "";
+    sdCandFileObj = null;
+    document.getElementById("cand-file-row").style.display = "none";
+    const ab = document.getElementById("cand-analyze-btn");
+    ab.disabled = true; ab.style.opacity = ".5";
+    document.getElementById("cand-result-banner").style.display = "none";
+    const msg = document.getElementById("cand-start-msg");
+    msg.textContent = "";
+    if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
     (async function() {
         try {
-            if (!sdIsLinked()) { document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。</div>"; return; }
             await sdGetToken(true);
             const remote = await sdFetchRemote();
             const cand = remote && remote.candidates ? remote.candidates : null;
-            if (!cand || !cand.items || !cand.items.length || cand.at === sdCandConsumedAt()) {
-                document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>モコの候補はまだありません（" + sdFmtDateTime(Date.now()) + " に確認）。スクショをモコに送ると、解析した候補がここに出ます。</div>";
-                return;
+            if (cand && cand.items && cand.items.length && cand.at !== sdCandConsumedAt()) {
+                sdCandCurrent = cand;
+                document.getElementById("cand-result-banner").style.display = "flex";
             }
-            sdCandCurrent = cand;
-            sdRenderCandidates(cand);
-        } catch (e) {
-            document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>確認できませんでした：" + escapeHtml(e.message) + "</div>";
-        }
+        } catch (e) { /* 結果確認ができなくても添付は続けられる */ }
     })();
 }
-function sdCloseCandidates() { document.getElementById("candidates-overlay").style.display = "none"; }
+function sdShowCandResult() {
+    if (!sdCandCurrent) return;
+    sdRenderCandidates(sdCandCurrent);
+    sdShowCandView("list");
+}
+function sdCloseCandidates() {
+    sdStopAnalysisPolling();
+    document.getElementById("candidates-overlay").style.display = "none";
+}
+let sdCandFileObj = null;
+function sdCandFilePicked() {
+    const fi = document.getElementById("cand-file");
+    const file = fi && fi.files && fi.files[0] ? fi.files[0] : null;
+    sdCandFileObj = file;
+    const row = document.getElementById("cand-file-row");
+    const ab = document.getElementById("cand-analyze-btn");
+    if (!file) { row.style.display = "none"; ab.disabled = true; ab.style.opacity = ".5"; return; }
+    document.getElementById("cand-fname").textContent = file.name || "スクショ";
+    document.getElementById("cand-thumb").src = URL.createObjectURL(file);
+    row.style.display = "flex";
+    ab.disabled = false; ab.style.opacity = "";
+    document.getElementById("cand-start-msg").textContent = "";
+}
+let sdAnalysisRequestedAt = "";
+let sdAnalysisPollTimer = null;
+let sdAnalysisPollDeadline = 0;
+async function sdStartAnalysis() {
+    const msg = document.getElementById("cand-start-msg");
+    if (!sdCandFileObj) { msg.textContent = "先にスクショを選んでください。"; return; }
+    if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
+    const ab = document.getElementById("cand-analyze-btn");
+    ab.disabled = true; ab.style.opacity = ".5";
+    msg.textContent = "ドライブへ送っています…";
+    try {
+        const token = await sdGetToken(true);
+        const type = sdCandFileObj.type || "image/png";
+        const ext = type.indexOf("png") >= 0 ? "png" : (type.indexOf("webp") >= 0 ? "webp" : "jpg");
+        const meta = { name: "smartd-analysis-request." + ext, mimeType: type, parents: ["root"] };
+        const form = new FormData();
+        form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
+        form.append("file", sdCandFileObj);
+        sdAnalysisRequestedAt = new Date().toISOString();
+        const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + token },
+            body: form
+        });
+        if (!res.ok) throw new Error("送信に失敗しました（" + res.status + "）");
+        document.getElementById("cand-analyzing-msg").textContent = "";
+        sdShowCandView("analyzing");
+        sdAnalysisPollDeadline = Date.now() + 10 * 60 * 1000;
+        sdStopAnalysisPolling();
+        sdAnalysisPollTimer = setInterval(sdAnalysisPollTick, 20000);
+        setTimeout(sdAnalysisPollTick, 15000);
+    } catch (e) {
+        ab.disabled = false; ab.style.opacity = "";
+        msg.textContent = "送れませんでした：" + e.message;
+    }
+}
+async function sdAnalysisPollTick() {
+    try {
+        const remote = await sdFetchRemote();
+        const cand = remote && remote.candidates ? remote.candidates : null;
+        if (cand && cand.items && cand.items.length && cand.at !== sdCandConsumedAt() && Date.parse(cand.at) > Date.parse(sdAnalysisRequestedAt)) {
+            sdStopAnalysisPolling();
+            sdCandCurrent = cand;
+            sdRenderCandidates(cand);
+            sdShowCandView("list");
+            return;
+        }
+    } catch (e) { /* 次のポーリングで再試行 */ }
+    if (Date.now() > sdAnalysisPollDeadline) {
+        sdStopAnalysisPolling();
+        document.getElementById("cand-analyzing-msg").textContent = "10分待っても結果が届きませんでした。家のPCが起動しているか確認してください。閉じても解析は続き、終われば次に開いたときに結果が出ます。";
+    }
+}
+function sdStopAnalysisPolling() {
+    if (sdAnalysisPollTimer) { clearInterval(sdAnalysisPollTimer); sdAnalysisPollTimer = null; }
+}
 function sdRenderCandidates(cand) {
     document.getElementById("candidates-meta").textContent = sdFmtDateTime(cand.at) + " の解析分 ・ 全" + cand.items.length + "組";
     const body = document.getElementById("candidates-body");
