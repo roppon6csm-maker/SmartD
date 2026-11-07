@@ -712,7 +712,7 @@
                 <button id="tab-operation" class="nav-tab" onclick="switchView('operation')">管理表</button>
                 <button id="tab-settings" class="nav-tab" onclick="switchView('settings')">設定</button>
             </div>
-            <div class="version-tag">ver.0.2.16</div>
+            <div class="version-tag">ver.0.2.17</div>
         </div>
     </header>
 
@@ -893,7 +893,7 @@
             <div id="drive-last-saved" style="display:none; background:#ebf8ff; border-radius:6px; padding:7px 9px; font-size:13px; font-weight:700; color:#2d3748; margin:6px 0 8px;"></div>
             <div id="drive-notice" style="display:none; background:#fff8e1; border:1px solid #e8b93c; color:#5c4303; border-radius:6px; padding:8px; font-size:12px; line-height:1.6; margin:6px 0 8px;"></div>
             <button class="btn-action btn-save" id="btn-drive-link" onclick="sdSyncNow()">Googleドライブと連携する<small style="display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;">最初に1回だけ押します</small></button>
-            <button class="btn-action btn-save" id="btn-drive-sync" onclick="sdSyncNow()" style="display:none;">ドライブとデータ同期する<small style="display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;">同期時間は約1時間となります</small></button>
+            <button class="btn-action btn-save" id="btn-drive-sync" onclick="sdSaveNow()" style="display:none;">ドライブに保存する</button>
             <button class="btn-action btn-export" id="btn-drive-load" onclick="sdManualDownload()" style="display:none; margin-top:6px;">ドライブから読み直す<small style="display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;">モコの変更を、この端末に取り込みます</small></button>
             <button class="btn-action btn-export" id="btn-drive-check" onclick="sdCheckMocoUpdate()" style="display:none; margin-top:6px;">モコの更新を確認する</button>
         </div>
@@ -1734,6 +1734,7 @@ let sdAccessToken = null;
 let sdTokenExpiresAt = 0;
 let sdDriveFileId = null;
 let sdUploadTimer = null;
+let sdSaving = false;
 let sdApplyingRemote = false;
 let sdLastActiveState = null;
 
@@ -1742,7 +1743,6 @@ localStorage.setItem = function(key, value) {
     sdOrigSetItem(key, value);
     if (!sdApplyingRemote && SD_DATA_KEYS.indexOf(key) >= 0) {
         sdOrigSetItem("sd_local_updatedAt", String(Date.now()));
-        sdScheduleUpload();
     }
 };
 
@@ -1787,15 +1787,9 @@ function sdRefreshDriveUI(flash) {
     if (btnLink) btnLink.style.display = "none";
     if (btnSync) {
         btnSync.style.display = "";
-        if (sdSyncActive()) {
-            btnSync.disabled = true;
-            btnSync.style.opacity = "0.55";
-            btnSync.innerHTML = "同期中です<small style=\"display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;\">同期は約1時間続きます（" + sdFmtDateTime(sdTokenExpiresAt) + " まで）</small>";
-        } else {
-            btnSync.disabled = false;
-            btnSync.style.opacity = "";
-            btnSync.innerHTML = "ドライブとデータ同期する<small style=\"display:block; font-size:10px; font-weight:400; opacity:.85; margin-top:2px;\">同期時間は約1時間となります</small>";
-        }
+        btnSync.disabled = !!sdSaving;
+        btnSync.style.opacity = sdSaving ? "0.55" : "";
+        btnSync.innerHTML = sdSaving ? "保存中…" : "ドライブに保存する";
     }
     if (btnCheck) btnCheck.style.display = "";
     const notice = sdPendingNotice();
@@ -1813,17 +1807,11 @@ function sdRefreshDriveUI(flash) {
         else bandEl.style.display = "none";
     }
     if (typeof flash === "string") { statusEl.textContent = flash; return; }
-    if (sdSyncActive()) {
-        statusEl.innerHTML = "<b>同期中です。</b>" + sdFmtDateTime(sdTokenExpiresAt) + " までは、変更が自動で保存されます。";
-    } else {
-        statusEl.innerHTML = "<b>連携中です。</b>今は同期が切れています。";
-    }
+    statusEl.innerHTML = "<b>連携中です。</b>保存したい時に「ドライブに保存する」を押してください。";
 }
 
 function sdScheduleUpload() {
-    if (!sdIsLinked() || !SD_DRIVE_CLIENT_ID) return;
-    if (sdUploadTimer) clearTimeout(sdUploadTimer);
-    sdUploadTimer = setTimeout(function() { sdUploadToDrive(false); }, 2000);
+    // 自動保存は廃止（ver.0.2.17〜）。保存は「ドライブに保存する」ボタンのみ。
 }
 function sdGetToken(interactive) {
     return new Promise(function(resolve, reject) {
@@ -1942,6 +1930,31 @@ function sdApplyPayload(payload) {
         const t = new Date(payload.savedAt).getTime();
         sdOrigSetItem("sd_local_updatedAt", String(isNaN(t) ? Date.now() : t));
     } finally { sdApplyingRemote = false; }
+}
+async function sdSaveNow() {
+    if (!SD_DRIVE_CLIENT_ID) { sdRefreshDriveUI("未設定（準備中です）"); return; }
+    if (sdSaving) return;
+    sdSaving = true;
+    let msg = null;
+    try {
+        await sdGetToken(true);
+        if (!sdIsLinked()) sdOrigSetItem("sd_drive_linked", "1");
+        sdRefreshDriveUI("ドライブへ保存中…");
+        const remote = await sdFetchRemote();
+        const lt = Number(localStorage.getItem("sd_local_updatedAt") || 0);
+        if (remote) {
+            const rt = new Date(remote.savedAt).getTime() || 0;
+            if (remote.notice && rt > lt) { sdSetPendingNotice(remote); return; }
+            if (rt > lt) { msg = "ドライブに新しいデータがあります。上書きはしませんでした。「モコの更新を確認する」で内容を確認してください。"; return; }
+        }
+        await sdDoUpload();
+        msg = "保存しました（" + sdFmtDateTime(Date.now()) + "）。";
+    } catch (e) {
+        msg = "保存できませんでした：" + e.message;
+    } finally {
+        sdSaving = false;
+        sdRefreshDriveUI(msg === null ? undefined : msg);
+    }
 }
 async function sdSyncNow() {
     if (!SD_DRIVE_CLIENT_ID) { sdRefreshDriveUI("未設定（準備中です）"); return; }
