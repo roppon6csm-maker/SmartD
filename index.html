@@ -712,7 +712,7 @@
                 <button id="tab-operation" class="nav-tab" onclick="switchView('operation')">管理表</button>
                 <button id="tab-settings" class="nav-tab" onclick="switchView('settings')">設定</button>
             </div>
-            <div class="version-tag">ver.0.2.15</div>
+            <div class="version-tag">ver.0.2.16</div>
         </div>
     </header>
 
@@ -754,6 +754,23 @@
                     <button class="btn-action btn-save" onclick="sdImportCandidates()">選択したものを管理表に入れる</button>
                     <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardCandidates()">候補を破棄する</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="x-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:2000;">
+        <div style="background:#fff; margin:4vh auto; width:min(94vw,520px); max-height:92vh; overflow-y:auto; border-radius:12px; padding:14px; box-sizing:border-box;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-weight:700; font-size:15px; color:#2d3748;">Xアカウントを補完する</div>
+                <button class="btn-action btn-export" style="width:auto; padding:5px 14px; margin:0;" onclick="sdCloseXCandidates()">閉じる</button>
+            </div>
+            <div id="x-meta" style="font-size:12px; color:#4a5568; margin:6px 0;"></div>
+            <div id="x-msg" style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;"></div>
+            <div style="font-size:11px; color:#718096; margin-bottom:6px;">@をタップすると、そのアカウントをXで開きます。XのIDは空欄の行にだけ書き込みます。推奨とメールアドレスは、選んだ・入力した内容で更新します。</div>
+            <div id="x-body"></div>
+            <div id="x-footer" style="display:none; margin-top:10px;">
+                <button class="btn-action btn-save" onclick="sdImportXCandidates()">選択したものを反映する</button>
+                <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardXCandidates()">候補を破棄する</button>
             </div>
         </div>
     </div>
@@ -811,8 +828,9 @@
             </div>
         </div>
 
-        <div style="padding: 2px 0 6px;">
-            <button class="btn-action btn-save" onclick="sdOpenCandidates()">スクショから出演者を抜き出す</button>
+        <div style="padding: 2px 0 6px; display:flex; gap:8px;">
+            <button class="btn-action btn-save" style="flex:1; width:auto;" onclick="sdOpenCandidates()">スクショから出演者を抜き出す</button>
+            <button class="btn-action btn-save" style="flex:1; width:auto;" onclick="sdOpenXCandidates()">Xアカウントを補完する</button>
         </div>
 
         <div id="stats-panel" class="stats-bar" style="text-align: right; padding: 2px 0;">
@@ -1729,6 +1747,7 @@ localStorage.setItem = function(key, value) {
 };
 
 let sdRemoteCandidates = null;
+let sdRemoteXCandidates = null;
 function sdFmtDateTime(t) {
     const d = new Date(t);
     return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" }) + " " + d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -1848,6 +1867,7 @@ async function sdFetchRemote() {
     if (!res.ok) throw new Error("読み込みに失敗しました");
     const j = await res.json();
     sdRemoteCandidates = (j && j.candidates) ? j.candidates : null;
+    sdRemoteXCandidates = (j && j.xCandidates) ? j.xCandidates : null;
     return j;
 }
 function sdBuildPayload() {
@@ -1856,6 +1876,9 @@ function sdBuildPayload() {
     SD_DATA_KEYS.forEach(function(k) { payload.data[k] = localStorage.getItem(k); });
     if (sdRemoteCandidates && sdRemoteCandidates.at && sdRemoteCandidates.at !== (localStorage.getItem("sd_candidates_consumed") || "")) {
         payload.candidates = sdRemoteCandidates;
+    }
+    if (sdRemoteXCandidates && sdRemoteXCandidates.at && sdRemoteXCandidates.at !== (localStorage.getItem("sd_xcandidates_consumed") || "")) {
+        payload.xCandidates = sdRemoteXCandidates;
     }
     return payload;
 }
@@ -1959,6 +1982,7 @@ async function sdCheckMocoUpdate() {
         if (remote.notice && rt > lt) { sdSetPendingNotice(remote); sdRefreshDriveUI(); return; }
         if (rt > lt) { sdRefreshDriveUI("ドライブに新しいデータがあります（モコの更新ではありません）。同期すると取り込まれます。"); return; }
         if (remote.candidates && remote.candidates.at && remote.candidates.at !== (localStorage.getItem("sd_candidates_consumed") || "")) { sdRefreshDriveUI("モコから出演者候補が届いています（" + sdFmtDateTime(remote.candidates.at) + " の解析分）。管理表の「スクショから出演者を抜き出す」から確認できます。"); return; }
+        if (remote.xCandidates && remote.xCandidates.at && remote.xCandidates.at !== (localStorage.getItem("sd_xcandidates_consumed") || "")) { sdRefreshDriveUI("モコからXアカウントの候補が届いています（" + sdFmtDateTime(remote.xCandidates.at) + " の調査分）。管理表の「Xアカウントを補完する」から確認できます。"); return; }
         sdRefreshDriveUI("モコの更新はありません（" + sdFmtDateTime(Date.now()) + " に確認）。");
     } catch (e) {
         sdRefreshDriveUI("確認できませんでした：" + e.message);
@@ -2229,6 +2253,138 @@ function sdImportCandidates() {
     sdCloseCandidates();
     if (typeof executeSortPipeline === "function") executeSortPipeline();
     showToastBanner("管理表に新規" + addedNew + "件を追加しました" + (alreadyExists ? "（既存" + alreadyExists + "件は変更なし）" : ""));
+}
+// ===== Xアカウント候補（モコの調査結果） =====
+let sdXCandCurrent = null;
+function sdXConsumedAt() { return localStorage.getItem("sd_xcandidates_consumed") || ""; }
+async function sdOpenXCandidates() {
+    const ov = document.getElementById("x-overlay");
+    ov.style.display = "block";
+    const msg = document.getElementById("x-msg");
+    document.getElementById("x-body").innerHTML = "";
+    document.getElementById("x-footer").style.display = "none";
+    document.getElementById("x-meta").textContent = "";
+    if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
+    msg.textContent = "モコの調査結果を確認しています…";
+    try {
+        await sdGetToken(true);
+        const remote = await sdFetchRemote();
+        const cand = remote && remote.xCandidates ? remote.xCandidates : null;
+        if (cand && cand.items && cand.items.length && cand.at !== sdXConsumedAt()) {
+            sdXCandCurrent = cand;
+            msg.textContent = "";
+            sdRenderXCandidates(cand);
+        } else {
+            msg.textContent = "まだ調査結果が届いていません。モコに「Xアカウントを調べて」と頼むと、結果がここに届きます。";
+        }
+    } catch (e) {
+        msg.textContent = "確認できませんでした：" + e.message;
+    }
+}
+function sdCloseXCandidates() {
+    document.getElementById("x-overlay").style.display = "none";
+}
+function sdXChip(i, val) {
+    document.getElementById("xc-meth-" + i).value = val;
+    const row = document.getElementById("xc-row-" + i);
+    if (row) {
+        row.querySelectorAll(".xc-chip").forEach(function(b) {
+            const on = b.getAttribute("data-meth") === val;
+            b.style.border = on ? "2px solid #2b6cb0" : "1px solid #cbd5e0";
+            b.style.fontWeight = on ? "700" : "400";
+        });
+    }
+    const mr = document.getElementById("xc-mailrow-" + i);
+    if (mr) mr.style.display = (val === "✉️") ? "" : "none";
+}
+function sdXHandleInput(i) {
+    const inp = document.getElementById("xc-handle-" + i);
+    const link = document.getElementById("xc-link-" + i);
+    if (!inp || !link) return;
+    const h = (inp.value || "").trim().replace(/^@+/, "");
+    link.href = h ? "https://x.com/" + h : "https://x.com/";
+}
+function sdRenderXCandidates(cand) {
+    document.getElementById("x-meta").textContent = sdFmtDateTime(cand.at) + " の調査分 ・ 全" + cand.items.length + "件";
+    const body = document.getElementById("x-body");
+    body.innerHTML = "";
+    const methOptions = [["✉️", "✉️ メール"], ["𝕏", "𝕏 X"], ["L", "LINE"], ["🗒", "フォーム"]];
+    cand.items.forEach(function(item, i) {
+        const artist = appState.artists.find(function(a) { return a.artist === item.name; });
+        const row = document.createElement("div");
+        row.id = "xc-row-" + i;
+        row.style.cssText = "border-bottom:1px solid #e2e8f0; padding:8px 2px;";
+        if (!artist) {
+            row.innerHTML = "<div style='font-size:13px; font-weight:600; color:#2d3748;'>" + escapeHtml(item.name) + " <span style='font-size:10px; font-weight:700; color:#fff; background:#718096; border-radius:4px; padding:1px 5px;'>リストに見つかりません</span></div>" +
+                "<div style='font-size:11px; color:#718096; margin-top:3px;'>この名前は現在のリストにないため、対象外です。</div>";
+            body.appendChild(row);
+            return;
+        }
+        const hasId = !!(artist.twitterId && artist.twitterId.trim() !== "");
+        const shownHandle = hasId ? extractTwitterScreenName(artist.twitterId) || artist.twitterId : (item.handle || "");
+        let tags = "";
+        if (item.verdict === "候補") tags += " <span style='font-size:10px; font-weight:700; color:#975a16; background:#fefcbf; border-radius:4px; padding:1px 5px;'>候補</span>";
+        else tags += " <span style='font-size:10px; font-weight:700; color:#276749; background:#c6f6d5; border-radius:4px; padding:1px 5px;'>確実</span>";
+        if (hasId) tags += " <span style='font-size:10px; font-weight:700; color:#4a5568; background:#e2e8f0; border-radius:4px; padding:1px 5px;'>登録済み（IDは変更しません）</span>";
+        const defMeth = methOptions.some(function(o) { return o[0] === artist.meth; }) ? artist.meth : "𝕏";
+        let chips = "";
+        methOptions.forEach(function(o) {
+            const on = o[0] === defMeth;
+            chips += "<button type='button' class='xc-chip' data-meth='" + o[0] + "' onclick='sdXChip(" + i + ", \"" + o[0] + "\")' style='font-size:12px; padding:4px 9px; border-radius:6px; background:#fff; color:#2d3748; border:" + (on ? "2px solid #2b6cb0" : "1px solid #cbd5e0") + "; font-weight:" + (on ? "700" : "400") + ";'>" + o[1] + "</button>";
+        });
+        row.innerHTML =
+            "<div style='display:flex; gap:8px; align-items:flex-start;'>" +
+            "<input type='checkbox' id='xc-chk-" + i + "'" + (item.verdict === "候補" ? "" : " checked") + " style='width:19px; height:19px; margin-top:2px; flex:none;'>" +
+            "<div style='flex:1; min-width:0;'>" +
+            "<div style='font-size:13.5px; font-weight:600; color:#2d3748;'>" + escapeHtml(item.name) + tags + "</div>" +
+            "<div style='display:flex; align-items:center; gap:6px; margin-top:4px;'><span style='font-size:13px; color:#4a5568;'>@</span>" +
+            "<input type='text' id='xc-handle-" + i + "' value='" + escapeHtml(shownHandle) + "'" + (hasId ? " disabled" : "") + " oninput='sdXHandleInput(" + i + ")' style='flex:1; min-width:0; font-size:13px; padding:5px 7px; border:1px solid #cbd5e0; border-radius:6px;'>" +
+            "<a id='xc-link-" + i + "' href='https://x.com/" + escapeHtml(shownHandle) + "' target='_blank' rel='noopener' style='font-size:12px; font-weight:700; color:#1d9bf0; text-decoration:none; flex:none;'>Xで開く</a></div>" +
+            (item.evidence ? "<div style='font-size:11px; color:#718096; margin-top:3px;'>" + escapeHtml(item.evidence) + "</div>" : "") +
+            "<input type='hidden' id='xc-meth-" + i + "' value='" + defMeth + "'>" +
+            "<div style='display:flex; align-items:center; gap:6px; margin-top:7px; flex-wrap:wrap;'><span style='font-size:11.5px; color:#718096;'>推奨:</span>" + chips + "</div>" +
+            "<div id='xc-mailrow-" + i + "' style='display:" + (defMeth === "✉️" ? "" : "none") + "; margin-top:7px;'><input type='text' id='xc-mail-" + i + "' value='" + escapeHtml(artist.mail || "") + "' placeholder='メールアドレスを入力' style='width:100%; box-sizing:border-box; font-size:13px; padding:6px 8px; border:1px solid #cbd5e0; border-radius:6px;'></div>" +
+            "</div></div>";
+        body.appendChild(row);
+    });
+    document.getElementById("x-footer").style.display = "";
+}
+function sdXMarkConsumed() {
+    if (sdXCandCurrent && sdXCandCurrent.at) sdOrigSetItem("sd_xcandidates_consumed", sdXCandCurrent.at);
+    sdXCandCurrent = null;
+}
+function sdDiscardXCandidates() {
+    if (!confirm("この候補を破棄します。よろしいですか？")) return;
+    sdXMarkConsumed();
+    sdCloseXCandidates();
+    showToastBanner("候補を破棄しました");
+    sdScheduleUpload();
+}
+function sdImportXCandidates() {
+    if (!sdXCandCurrent) return;
+    let filledId = 0, changedMeth = 0, changedMail = 0, skipped = 0;
+    sdXCandCurrent.items.forEach(function(item, i) {
+        const chk = document.getElementById("xc-chk-" + i);
+        if (!chk || !chk.checked) return;
+        const artist = appState.artists.find(function(a) { return a.artist === item.name; });
+        if (!artist) { skipped++; return; }
+        const handleEl = document.getElementById("xc-handle-" + i);
+        const handle = handleEl ? (handleEl.value || "").trim().replace(/^@+/, "") : "";
+        if ((!artist.twitterId || artist.twitterId.trim() === "") && handle) { artist.twitterId = handle; filledId++; }
+        const methEl = document.getElementById("xc-meth-" + i);
+        const meth = methEl ? methEl.value : "";
+        if (meth && meth !== artist.meth) { artist.meth = meth; changedMeth++; }
+        if (meth === "✉️") {
+            const mailEl = document.getElementById("xc-mail-" + i);
+            const mail = mailEl ? (mailEl.value || "").trim() : "";
+            if (mail && mail !== artist.mail) { artist.mail = mail; changedMail++; }
+        }
+    });
+    localStorage.setItem("sd_matrix_artists", JSON.stringify(appState.artists));
+    sdXMarkConsumed();
+    sdCloseXCandidates();
+    if (typeof executeSortPipeline === "function") executeSortPipeline();
+    showToastBanner("反映しました：XのID " + filledId + "件" + (changedMeth ? "、推奨 " + changedMeth + "件" : "") + (changedMail ? "、メール " + changedMail + "件" : "") + (skipped ? "（リストにない " + skipped + "件は対象外）" : ""));
 }
 window.addEventListener("DOMContentLoaded", function() {
     sdRefreshDriveUI();
