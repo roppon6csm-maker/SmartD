@@ -728,12 +728,12 @@
                     <span>前回の<b>解析結果が届いています</b></span>
                     <button class="btn-action btn-save" style="width:auto; padding:5px 12px; margin:0;" onclick="sdShowCandResult()">結果を見る</button>
                 </div>
-                <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">他のライブのタイムテーブルのスクショを選んでください。解析が終わると候補リストが開きます。スクショは解析後に削除されます。</div>
+                <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">他のライブのタイムテーブルのスクショを選んでください（複数枚まとめて選べます）。解析が終わると候補リストが開きます。スクショは解析後に削除されます。</div>
                 <label for="cand-file" style="display:block; border:1.8px dashed #a0aec0; border-radius:10px; padding:20px 10px; text-align:center; font-size:14px; color:#4a5568; margin-bottom:10px;">タップしてスクショを選ぶ</label>
-                <input type="file" id="cand-file" accept="image/*" style="display:none;" onchange="sdCandFilePicked()">
+                <input type="file" id="cand-file" accept="image/*" multiple style="display:none;" onchange="sdCandFilePicked()">
                 <div id="cand-file-row" style="display:none; align-items:center; gap:10px; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:12px;">
                     <img id="cand-thumb" style="width:34px; height:44px; object-fit:cover; border-radius:4px;" alt="">
-                    <div style="min-width:0;"><div id="cand-fname" style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div><div style="font-size:11px; color:#718096;">選択済み</div></div>
+                    <div style="min-width:0;"><div id="cand-fname" style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div><div id="cand-fsub" style="font-size:11px; color:#718096;">選択済み</div></div>
                 </div>
                 <button class="btn-action btn-save" id="cand-analyze-btn" onclick="sdStartAnalysis()" disabled style="opacity:.5;">解析する</button>
                 <div id="cand-start-msg" style="font-size:12px; color:#4a5568; margin-top:8px;"></div>
@@ -755,6 +755,15 @@
                     <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardCandidates()">候補を破棄する</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="cand-done-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:3000;">
+        <div style="background:#fff; margin:30vh auto 0; width:min(88vw,320px); border-radius:12px; padding:16px; box-sizing:border-box; box-shadow:0 8px 30px rgba(0,0,0,.3);">
+            <div style="font-size:15.5px; font-weight:700; color:#2d3748; margin-bottom:8px;">解析が終わりました</div>
+            <div id="cand-done-text" style="font-size:13px; color:#2d3748; line-height:1.55; margin-bottom:14px;"></div>
+            <button class="btn-action btn-save" onclick="sdCandDoneOpen()">候補を見る</button>
+            <button class="btn-action btn-export" style="margin-top:8px;" onclick="sdCandDoneLater()">後で</button>
         </div>
     </div>
 
@@ -2006,7 +2015,7 @@ function sdOpenCandidates() {
     sdShowCandView("start");
     const fi = document.getElementById("cand-file");
     if (fi) fi.value = "";
-    sdCandFileObj = null;
+    sdCandFileObjs = [];
     document.getElementById("cand-file-row").style.display = "none";
     const ab = document.getElementById("cand-analyze-btn");
     ab.disabled = true; ab.style.opacity = ".5";
@@ -2035,16 +2044,17 @@ function sdCloseCandidates() {
     sdStopAnalysisPolling();
     document.getElementById("candidates-overlay").style.display = "none";
 }
-let sdCandFileObj = null;
+let sdCandFileObjs = [];
 function sdCandFilePicked() {
     const fi = document.getElementById("cand-file");
-    const file = fi && fi.files && fi.files[0] ? fi.files[0] : null;
-    sdCandFileObj = file;
+    const files = fi && fi.files ? Array.prototype.slice.call(fi.files) : [];
+    sdCandFileObjs = files;
     const row = document.getElementById("cand-file-row");
     const ab = document.getElementById("cand-analyze-btn");
-    if (!file) { row.style.display = "none"; ab.disabled = true; ab.style.opacity = ".5"; return; }
-    document.getElementById("cand-fname").textContent = file.name || "スクショ";
-    document.getElementById("cand-thumb").src = URL.createObjectURL(file);
+    if (!files.length) { row.style.display = "none"; ab.disabled = true; ab.style.opacity = ".5"; return; }
+    document.getElementById("cand-fname").textContent = (files[0].name || "スクショ") + (files.length > 1 ? " ほか" + (files.length - 1) + "枚" : "");
+    document.getElementById("cand-fsub").textContent = files.length > 1 ? "選択済み（全" + files.length + "枚）" : "選択済み";
+    document.getElementById("cand-thumb").src = URL.createObjectURL(files[0]);
     row.style.display = "flex";
     ab.disabled = false; ab.style.opacity = "";
     document.getElementById("cand-start-msg").textContent = "";
@@ -2054,29 +2064,33 @@ let sdAnalysisPollTimer = null;
 let sdAnalysisPollDeadline = 0;
 async function sdStartAnalysis() {
     const msg = document.getElementById("cand-start-msg");
-    if (!sdCandFileObj) { msg.textContent = "先にスクショを選んでください。"; return; }
+    if (!sdCandFileObjs.length) { msg.textContent = "先にスクショを選んでください。"; return; }
     if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
     const ab = document.getElementById("cand-analyze-btn");
     ab.disabled = true; ab.style.opacity = ".5";
     msg.textContent = "ドライブへ送っています…";
     try {
         const token = await sdGetToken(true);
-        const type = sdCandFileObj.type || "image/png";
-        const ext = type.indexOf("png") >= 0 ? "png" : (type.indexOf("webp") >= 0 ? "webp" : "jpg");
-        const meta = { name: "smartd-analysis-request." + ext, mimeType: type, parents: ["root"] };
-        const form = new FormData();
-        form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
-        form.append("file", sdCandFileObj);
         sdAnalysisRequestedAt = new Date().toISOString();
-        const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-            method: "POST",
-            headers: { "Authorization": "Bearer " + token },
-            body: form
-        });
-        if (!res.ok) throw new Error("送信に失敗しました（" + res.status + "）");
+        for (let fi2 = 0; fi2 < sdCandFileObjs.length; fi2++) {
+            const f = sdCandFileObjs[fi2];
+            const type = f.type || "image/png";
+            const ext = type.indexOf("png") >= 0 ? "png" : (type.indexOf("webp") >= 0 ? "webp" : "jpg");
+            const meta = { name: "smartd-analysis-request-" + (fi2 + 1) + "." + ext, mimeType: type, parents: ["root"] };
+            const form = new FormData();
+            form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
+            form.append("file", f);
+            if (sdCandFileObjs.length > 1) msg.textContent = "ドライブへ送っています…（" + (fi2 + 1) + "/" + sdCandFileObjs.length + "枚目）";
+            const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + token },
+                body: form
+            });
+            if (!res.ok) throw new Error("送信に失敗しました（" + res.status + "）");
+        }
         document.getElementById("cand-analyzing-msg").textContent = "";
         sdShowCandView("analyzing");
-        sdAnalysisPollDeadline = Date.now() + 10 * 60 * 1000;
+        sdAnalysisPollDeadline = Date.now() + (8 + 4 * sdCandFileObjs.length) * 60 * 1000;
         sdStopAnalysisPolling();
         sdAnalysisPollTimer = setInterval(sdAnalysisPollTick, 20000);
         setTimeout(sdAnalysisPollTick, 15000);
@@ -2099,12 +2113,44 @@ async function sdAnalysisPollTick() {
     } catch (e) { /* 次のポーリングで再試行 */ }
     if (Date.now() > sdAnalysisPollDeadline) {
         sdStopAnalysisPolling();
-        document.getElementById("cand-analyzing-msg").textContent = "10分待っても結果が届きませんでした。家のPCが起動しているか確認してください。閉じても解析は続き、終われば次に開いたときに結果が出ます。";
+        document.getElementById("cand-analyzing-msg").textContent = "しばらく待っても結果が届きませんでした。家のPCが起動しているか確認してください。閉じても解析は続き、終われば次に開いたときに結果が出ます。";
     }
 }
 function sdStopAnalysisPolling() {
     if (sdAnalysisPollTimer) { clearInterval(sdAnalysisPollTimer); sdAnalysisPollTimer = null; }
 }
+// ===== 解析完了モーダル（アプリを開いている間のお知らせ） =====
+let sdCandDoneShownFor = "";
+async function sdCheckCandDone() {
+    try {
+        if (!sdIsLinked() || !sdSyncActive()) return;
+        if (document.getElementById("candidates-overlay").style.display === "block") return;
+        if (document.getElementById("cand-done-modal").style.display === "block") return;
+        const remote = await sdFetchRemote();
+        const cand = remote && remote.candidates ? remote.candidates : null;
+        if (!cand || !cand.items || !cand.items.length) return;
+        if (cand.at === sdCandConsumedAt()) return;
+        if (cand.at === (localStorage.getItem("sd_candidates_dismissed") || "")) return;
+        if (cand.at === sdCandDoneShownFor) return;
+        sdCandCurrent = cand;
+        sdCandDoneShownFor = cand.at;
+        document.getElementById("cand-done-text").innerHTML = escapeHtml(sdFmtDateTime(cand.at)) + " の解析分<br>全" + cand.items.length + "組の候補が届いています。";
+        document.getElementById("cand-done-modal").style.display = "block";
+    } catch (e) { /* 確認できない時は静かに見送る */ }
+}
+function sdCandDoneOpen() {
+    document.getElementById("cand-done-modal").style.display = "none";
+    if (!sdCandCurrent) return;
+    document.getElementById("candidates-overlay").style.display = "block";
+    sdRenderCandidates(sdCandCurrent);
+    sdShowCandView("list");
+}
+function sdCandDoneLater() {
+    if (sdCandCurrent) localStorage.setItem("sd_candidates_dismissed", sdCandCurrent.at);
+    document.getElementById("cand-done-modal").style.display = "none";
+}
+setInterval(sdCheckCandDone, 30000);
+document.addEventListener("visibilitychange", function() { if (!document.hidden) sdCheckCandDone(); });
 function sdRenderCandidates(cand) {
     document.getElementById("candidates-meta").textContent = sdFmtDateTime(cand.at) + " の解析分 ・ 全" + cand.items.length + "組";
     const body = document.getElementById("candidates-body");
