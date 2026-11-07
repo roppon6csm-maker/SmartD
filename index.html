@@ -716,6 +716,22 @@
         </div>
     </header>
 
+    <div id="candidates-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:2000;">
+        <div style="background:#fff; margin:4vh auto; width:min(94vw,520px); max-height:92vh; overflow-y:auto; border-radius:12px; padding:14px; box-sizing:border-box;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-weight:700; font-size:15px; color:#2d3748;">スクショからの候補</div>
+                <button class="btn-action btn-export" style="width:auto; padding:5px 14px; margin:0;" onclick="sdCloseCandidates()">閉じる</button>
+            </div>
+            <div id="candidates-meta" style="font-size:12px; color:#4a5568; margin:6px 0;"></div>
+            <div style="font-size:11px; color:#718096; margin-bottom:6px;">読みが食い違った行には「要確認」が付きます。名前とよみがなは、その場で直せます。もともと登録されている名前は、何も変わりません。新しく登録されるのは名前とよみがなだけです。</div>
+            <div id="candidates-body"></div>
+            <div id="candidates-footer" style="display:none; margin-top:10px;">
+                <button class="btn-action btn-save" onclick="sdImportCandidates()">選択したものを管理表に入れる</button>
+                <button class="btn-action btn-export" style="margin-top:6px;" onclick="sdDiscardCandidates()">候補を破棄する</button>
+            </div>
+        </div>
+    </div>
+
     <div id="view-performers" class="view-section active">
         <div id="performers-stats-panel" class="stats-bar">出演者数：0組   合計ヨミ：0人</div>
         <div class="table-scroll-container" style="max-height: calc(100vh - 110px);">
@@ -758,6 +774,10 @@
                     <div class="index-btn" onclick="executeKanaSortAndJump('wa')">わ</div>
                 </div>
             </div>
+        </div>
+
+        <div style="padding: 2px 0 6px;">
+            <button class="btn-action btn-save" onclick="sdOpenCandidates()">スクショから出演者を抜き出す</button>
         </div>
 
         <div id="stats-panel" class="stats-bar" style="text-align: right; padding: 2px 0;">
@@ -1673,6 +1693,7 @@ localStorage.setItem = function(key, value) {
     }
 };
 
+let sdRemoteCandidates = null;
 function sdFmtDateTime(t) {
     const d = new Date(t);
     return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" }) + " " + d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -1790,12 +1811,17 @@ async function sdFetchRemote() {
     if (!fileId) return null;
     const res = await sdDriveFetch("/drive/v3/files/" + fileId + "?alt=media");
     if (!res.ok) throw new Error("読み込みに失敗しました");
-    return await res.json();
+    const j = await res.json();
+    sdRemoteCandidates = (j && j.candidates) ? j.candidates : null;
+    return j;
 }
 function sdBuildPayload() {
     const t = Number(localStorage.getItem("sd_local_updatedAt") || 0) || Date.now();
     const payload = { app: "SmartD", savedAt: new Date(t).toISOString(), data: {} };
     SD_DATA_KEYS.forEach(function(k) { payload.data[k] = localStorage.getItem(k); });
+    if (sdRemoteCandidates && sdRemoteCandidates.at && sdRemoteCandidates.at !== (localStorage.getItem("sd_candidates_consumed") || "")) {
+        payload.candidates = sdRemoteCandidates;
+    }
     return payload;
 }
 async function sdDoUpload() {
@@ -1897,6 +1923,7 @@ async function sdCheckMocoUpdate() {
         const lt = Number(localStorage.getItem("sd_local_updatedAt") || 0);
         if (remote.notice && rt > lt) { sdSetPendingNotice(remote); sdRefreshDriveUI(); return; }
         if (rt > lt) { sdRefreshDriveUI("ドライブに新しいデータがあります（モコの更新ではありません）。同期すると取り込まれます。"); return; }
+        if (remote.candidates && remote.candidates.at && remote.candidates.at !== (localStorage.getItem("sd_candidates_consumed") || "")) { sdRefreshDriveUI("モコから出演者候補が届いています（" + sdFmtDateTime(remote.candidates.at) + " の解析分）。管理表の「スクショから出演者を抜き出す」から確認できます。"); return; }
         sdRefreshDriveUI("モコの更新はありません（" + sdFmtDateTime(Date.now()) + " に確認）。");
     } catch (e) {
         sdRefreshDriveUI("確認できませんでした：" + e.message);
@@ -1938,6 +1965,112 @@ async function sdManualDownload() {
     } catch (e) {
         sdRefreshDriveUI("読み込めませんでした：" + e.message);
     }
+}
+// ===== スクショ候補（モコの解析結果） =====
+let sdCandCurrent = null;
+function sdCandConsumedAt() { return localStorage.getItem("sd_candidates_consumed") || ""; }
+function sdOpenCandidates() {
+    const ov = document.getElementById("candidates-overlay");
+    ov.style.display = "block";
+    document.getElementById("candidates-meta").textContent = "";
+    document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>ドライブを確認しています…</div>";
+    document.getElementById("candidates-footer").style.display = "none";
+    (async function() {
+        try {
+            if (!sdIsLinked()) { document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。</div>"; return; }
+            await sdGetToken(true);
+            const remote = await sdFetchRemote();
+            const cand = remote && remote.candidates ? remote.candidates : null;
+            if (!cand || !cand.items || !cand.items.length || cand.at === sdCandConsumedAt()) {
+                document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>モコの候補はまだありません（" + sdFmtDateTime(Date.now()) + " に確認）。スクショをモコに送ると、解析した候補がここに出ます。</div>";
+                return;
+            }
+            sdCandCurrent = cand;
+            sdRenderCandidates(cand);
+        } catch (e) {
+            document.getElementById("candidates-body").innerHTML = "<div style='font-size:13px; padding:10px 2px;'>確認できませんでした：" + escapeHtml(e.message) + "</div>";
+        }
+    })();
+}
+function sdCloseCandidates() { document.getElementById("candidates-overlay").style.display = "none"; }
+function sdRenderCandidates(cand) {
+    document.getElementById("candidates-meta").textContent = sdFmtDateTime(cand.at) + " の解析分 ・ 全" + cand.items.length + "組";
+    const body = document.getElementById("candidates-body");
+    body.innerHTML = "";
+    cand.items.forEach(function(item, i) {
+        const matched = appState.artists.some(function(a) { return a.artist === item.name; });
+        const row = document.createElement("div");
+        row.style.cssText = "border-bottom:1px solid #e2e8f0; padding:8px 2px;" + ((item.alts && item.alts.length) ? " background:#fffaf0;" : "");
+        let tags = "";
+        if (item.alts && item.alts.length) tags += " <span style='font-size:10px; font-weight:700; color:#c53030; background:#fed7d7; border-radius:4px; padding:1px 5px;'>要確認</span>";
+        tags += matched ? " <span style='font-size:10px; font-weight:700; color:#276749; background:#c6f6d5; border-radius:4px; padding:1px 5px;'>登録済み</span>" : " <span style='font-size:10px; font-weight:700; color:#2b6cb0; background:#ebf4ff; border-radius:4px; padding:1px 5px;'>新規</span>";
+        if (item.appearances && item.appearances > 1) tags += " <span style='font-size:10px; font-weight:700; color:#975a16; background:#fefcbf; border-radius:4px; padding:1px 5px;'>" + item.appearances + "回出演</span>";
+        let altHtml = "";
+        if (item.alts && item.alts.length) {
+            altHtml = "<div style='font-size:11px; color:#c53030; margin-top:3px;'>もう一方の読み：" + item.alts.map(function(alt) { return "<a href='javascript:void(0)' onclick='sdCandSwap(" + i + ", this)' data-alt='" + escapeHtml(alt) + "' style='color:#c53030; text-decoration:underline;'>" + escapeHtml(alt) + "</a>"; }).join(" ／ ") + "（タップで切替）</div>";
+        }
+        row.innerHTML =
+            "<div style='display:flex; gap:8px; align-items:flex-start;'>" +
+            "<input type='checkbox' id='cand-chk-" + i + "' checked style='width:19px; height:19px; margin-top:2px; flex:none;'>" +
+            "<div style='flex:1; min-width:0;'>" +
+            "<div style='font-size:13px; font-weight:600; color:#2d3748;'>" + (i + 1) + "\u3000" + tags + "</div>" +
+            "<input type='text' id='cand-name-" + i + "' value='" + escapeHtml(item.name) + "' style='width:100%; box-sizing:border-box; font-size:14px; padding:5px 7px; margin-top:3px; border:1px solid #cbd5e0; border-radius:6px;'>" +
+            "<div style='font-size:11px; color:#718096; margin-top:4px;'>よみがな <input type='text' id='cand-reading-" + i + "' value='" + escapeHtml(item.reading || "") + "' style='width:60%; font-size:12px; padding:3px 6px; border:1px solid #cbd5e0; border-radius:6px;'></div>" +
+            altHtml +
+            "</div></div>";
+        body.appendChild(row);
+    });
+    document.getElementById("candidates-footer").style.display = "";
+}
+function sdCandSwap(i, el) {
+    const input = document.getElementById("cand-name-" + i);
+    const alt = el.getAttribute("data-alt");
+    const cur = input.value;
+    input.value = alt;
+    el.setAttribute("data-alt", cur);
+    el.textContent = cur;
+}
+function sdCandMarkConsumed() {
+    if (sdCandCurrent && sdCandCurrent.at) sdOrigSetItem("sd_candidates_consumed", sdCandCurrent.at);
+    sdCandCurrent = null;
+}
+function sdDiscardCandidates() {
+    if (!confirm("この候補を破棄します。よろしいですか？")) return;
+    sdCandMarkConsumed();
+    sdCloseCandidates();
+    showToastBanner("候補を破棄しました");
+    sdScheduleUpload();
+}
+function sdImportCandidates() {
+    if (!sdCandCurrent) return;
+    const items = sdCandCurrent.items;
+    let maxNo = 0;
+    appState.artists.forEach(function(a) {
+        const n = parseInt(a.no || 0, 10); if (!isNaN(n) && n > maxNo) maxNo = n;
+    });
+    let addedNew = 0, alreadyExists = 0;
+    items.forEach(function(item, i) {
+        const chk = document.getElementById("cand-chk-" + i);
+        if (!chk || !chk.checked) return;
+        const name = (document.getElementById("cand-name-" + i).value || "").trim();
+        const reading = (document.getElementById("cand-reading-" + i).value || "").trim();
+        if (!name) return;
+        const existing = appState.artists.find(function(a) { return a.artist === name; });
+        if (existing) { alreadyExists++; return; }
+        maxNo++;
+        appState.artists.push({
+            uid: "art_" + Date.now() + "_cand" + i,
+            no: String(maxNo), furigana: reading ? reading.charAt(0) : "", artist: name,
+            charge: "", mail: "", twitterId: "", lineId: "", meth: "", flag: "", date: "", yomi: "",
+            count: "", req: "", progress: "", perfOrder: undefined
+        });
+        addedNew++;
+    });
+    localStorage.setItem("sd_matrix_artists", JSON.stringify(appState.artists));
+    sdCandMarkConsumed();
+    sdCloseCandidates();
+    if (typeof executeSortPipeline === "function") executeSortPipeline();
+    showToastBanner("管理表に新規" + addedNew + "件を追加しました" + (alreadyExists ? "（既存" + alreadyExists + "件は変更なし）" : ""));
 }
 window.addEventListener("DOMContentLoaded", function() {
     sdRefreshDriveUI();
