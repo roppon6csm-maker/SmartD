@@ -712,7 +712,7 @@
                 <button id="tab-operation" class="nav-tab" onclick="switchView('operation')">管理表</button>
                 <button id="tab-settings" class="nav-tab" onclick="switchView('settings')">設定</button>
             </div>
-            <div class="version-tag">ver.0.2.19</div>
+            <div class="version-tag">ver.0.2.20</div>
         </div>
     </header>
 
@@ -759,29 +759,23 @@
     </div>
 
     <div id="x-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:2000;">
-        <div style="background:#fff; margin:4vh auto; width:min(94vw,520px); max-height:92vh; overflow-y:auto; border-radius:12px; padding:14px; box-sizing:border-box;">
+        <div id="x-scroll" style="background:#fff; margin:4vh auto; width:min(94vw,520px); max-height:92vh; overflow-y:auto; border-radius:12px; padding:14px; box-sizing:border-box;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="font-weight:700; font-size:15px; color:#2d3748;">Xアカウントを調べる</div>
                 <button class="btn-action btn-export" style="width:auto; padding:5px 14px; margin:0;" onclick="sdCloseXCandidates()">閉じる</button>
             </div>
             <div id="x-view-start">
                 <div id="x-result-banner" style="display:none; border:1px solid #2b6cb0; background:#ebf4fa; border-radius:8px; padding:8px 10px; font-size:13px; margin:8px 0; justify-content:space-between; align-items:center;">
-                    <span>前回の<b>調査結果が届いています</b></span>
+                    <span>モコの<b>調査結果が届いています</b></span>
                     <button class="btn-action btn-save" style="width:auto; padding:5px 12px; margin:0;" onclick="sdShowXResult()">結果を見る</button>
                 </div>
-                <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">Xアカウント（ID）が空欄のアーティストを調べます。<br><span id="x-start-target">対象は 0件 です。</span></div>
-                <button class="btn-action btn-save" id="x-start-btn" onclick="sdStartXResearch()">調査をはじめる</button>
-                <div id="x-start-msg" style="font-size:12px; color:#4a5568; margin-top:8px;"></div>
-                <div style="font-size:11px; color:#718096; margin-top:8px;">件数が多いと、結果が出るまで数十分かかる場合があります。アプリを閉じてしまっても大丈夫です。結果は次に開いたときに届いています。</div>
-            </div>
-            <div id="x-view-analyzing" style="display:none; text-align:center; padding:18px 0 8px;">
-                <div style="width:38px; height:38px; border-radius:50%; border:4px solid #e2e8f0; border-top-color:#2b6cb0; margin:0 auto 12px; animation:sdspin 1s linear infinite;"></div>
-                <div style="font-size:15px; font-weight:700; color:#2d3748; margin-bottom:6px;">調査中です</div>
-                <div id="x-analyzing-elapsed" style="font-size:13px; color:#4a5568; line-height:1.55;">モコがXで調べています。<br>結果が届いたら、この画面に一覧が出ます。</div>
-                <div id="x-analyzing-msg" style="font-size:12px; color:#718096; margin-top:10px;"></div>
-                <button class="btn-action btn-export" style="margin-top:14px;" onclick="sdCloseXCandidates()">閉じる（調査は続きます）</button>
+                <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">今回の30件（50音順）です。「Xで探す」でXの検索結果が開きます。見つけたら「登録」からIDを入れ、見つからなかったら左の□にチェックを付けてください。</div>
+                <div id="x-manual-head"></div>
+                <div id="x-manual-body"></div>
+                <button class="btn-action btn-export" style="margin-top:12px;" onclick="sdCloseXCandidates()">閉じる（続きは保存されます）</button>
             </div>
             <div id="x-view-list" style="display:none;">
+                <button class="btn-action btn-export" style="width:auto; padding:5px 12px; margin:4px 0 8px;" onclick="sdBackToXManual()">＜ 作業リストに戻る</button>
                 <div id="x-meta" style="font-size:12px; color:#4a5568; margin:6px 0;"></div>
                 <div id="x-msg" style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;"></div>
                 <div style="font-size:11px; color:#718096; margin-bottom:6px;">@をタップすると、そのアカウントをXで開きます。XのIDは空欄の行にだけ書き込みます。推奨とメールアドレスは、選んだ・入力した内容で更新します。</div>
@@ -849,7 +843,7 @@
 
         <div style="padding: 2px 0 6px; display:flex; gap:8px;">
             <button class="btn-action btn-save" style="flex:1; width:auto;" onclick="sdOpenCandidates()">スクショから出演者を抜き出す</button>
-            <button class="btn-action btn-save" style="flex:1; width:auto; opacity:.45;" disabled>Xアカウントを調べる</button>
+            <button class="btn-action btn-save" style="flex:1; width:auto;" onclick="sdOpenXCandidates()">Xアカウントを調べる</button>
         </div>
 
         <div id="stats-panel" class="stats-bar" style="text-align: right; padding: 2px 0;">
@@ -1314,7 +1308,7 @@
             document.getElementById('artist-editor-modal-overlay').classList.add('active');
         }
 
-        function closeArtistEditorModal() { document.getElementById('artist-editor-modal-overlay').classList.remove('active'); }
+        function closeArtistEditorModal() { document.getElementById('artist-editor-modal-overlay').classList.remove('active'); if (window.__sdXReturn) { window.__sdXReturn = false; sdOpenXCandidates(); } }
 
         function saveArtistEditorModalData() {
             const uid = document.getElementById('edit-artist-uid').value;
@@ -1775,7 +1769,7 @@
 const SD_DRIVE_CLIENT_ID = "13131304475-se53hduaifb9r3qot4ahc2lelhtetlds.apps.googleusercontent.com";
 const SD_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const SD_DRIVE_FILE_NAME = "smartd-data.json";
-const SD_DATA_KEYS = ["sd_matrix_artists", "sd_matrix_performers", "sd_matrix_templates"];
+const SD_DATA_KEYS = ["sd_matrix_artists", "sd_matrix_performers", "sd_matrix_templates", "sd_x_progress"];
 let sdAccessToken = null;
 let sdTokenExpiresAt = 0;
 let sdDriveFileId = null;
@@ -2320,27 +2314,141 @@ let sdXPollTimer = null;
 let sdXElapsedTimer = null;
 let sdXRequestedAt = "";
 function sdShowXView(name) {
-    ["start", "analyzing", "list"].forEach(function(v) {
+    ["start", "list"].forEach(function(v) {
         document.getElementById("x-view-" + v).style.display = (v === name) ? "" : "none";
     });
 }
 function sdXTargets() {
     return appState.artists.filter(function(a) { return !(a.twitterId && a.twitterId.trim() !== ""); }).slice(0, 30);
 }
+// ===== Xアカウント手作業リスト（今回の30件） =====
+function sdXProgLoad() {
+    try {
+        const p = JSON.parse(localStorage.getItem("sd_x_progress") || "null");
+        if (p && Array.isArray(p.uids) && p.checked && typeof p.checked === "object") {
+            if (!Array.isArray(p.processed)) p.processed = [];
+            return p;
+        }
+    } catch (e) {}
+    return null;
+}
+function sdXProgSave(p) { localStorage.setItem("sd_x_progress", JSON.stringify(p)); }
+function sdXBlanksSorted() {
+    return appState.artists.filter(function(a) { return !(a.twitterId && a.twitterId.trim() !== ""); })
+        .slice().sort(function(x, y) {
+            const kx = (x.yomi || x.artist || ""), ky = (y.yomi || y.artist || "");
+            return kx.localeCompare(ky, "ja") || (x.artist || "").localeCompare(y.artist || "", "ja");
+        });
+}
+function sdXArtistByUid(uid) { return appState.artists.find(function(a) { return a.uid === uid; }) || null; }
+function sdXEnsureBatch() {
+    let p = sdXProgLoad();
+    if (p) {
+        const exist = {};
+        appState.artists.forEach(function(a) { exist[a.uid] = true; });
+        const before = p.uids.length;
+        p.uids = p.uids.filter(function(u) { return exist[u]; });
+        if (p.uids.length !== before) sdXProgSave(p);
+        if (p.uids.length) return p;
+    }
+    const doneSet = {};
+    if (p) p.processed.forEach(function(u) { doneSet[u] = true; });
+    const blanks = sdXBlanksSorted().filter(function(a) { return !doneSet[a.uid]; });
+    if (!blanks.length) return null;
+    p = { uids: blanks.slice(0, 30).map(function(a) { return a.uid; }), checked: {}, processed: p ? p.processed : [] };
+    sdXProgSave(p);
+    return p;
+}
+function sdXRenderManual() {
+    const head = document.getElementById("x-manual-head");
+    const body = document.getElementById("x-manual-body");
+    if (!head || !body) return;
+    const p = sdXEnsureBatch();
+    if (!p) {
+        head.innerHTML = "";
+        body.innerHTML = "<div style='font-size:14px; color:#2d3748; padding:14px 0;'>Xアカウントが空欄のアーティストはいません。</div>";
+        return;
+    }
+    let reg = 0, chk = 0, rows = "";
+    p.uids.forEach(function(uid) {
+        const a = sdXArtistByUid(uid);
+        if (!a) return;
+        const isReg = !!(a.twitterId && a.twitterId.trim() !== "");
+        const isChk = !!p.checked[uid];
+        if (isReg) reg++; else if (isChk) chk++;
+        const done = isReg || isChk;
+        rows += "<div style='display:flex; align-items:center; gap:8px; border-top:1px solid #edf2f7; padding:10px 2px;'>"
+            + "<span data-uid='" + uid + "' onclick='sdXToggleCheck(this)' style='width:24px; height:24px; flex:none; border-radius:6px; border:2px solid " + (done ? "#2b6cb0" : "#a0aec0") + "; background:" + (done ? "#2b6cb0" : "#fff") + "; color:#fff; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer;'>" + (done ? "✓" : "") + "</span>"
+            + "<div style='flex:1; min-width:0;'><div style='font-size:15px; font-weight:700;" + (isChk && !isReg ? " color:#718096;" : "") + "'>" + escapeHtml(a.artist) + "</div>"
+            + "<div style='font-size:11px; color:#a0aec0;'>" + escapeHtml(a.yomi || "") + "</div></div>"
+            + (isReg
+                ? "<span style='flex:none; font-size:11px; font-weight:700; border-radius:6px; padding:2px 7px; background:#c6f6d5; color:#276749;'>登録済み @" + escapeHtml(a.twitterId) + "</span>"
+                : (isChk ? "<span style='flex:none; font-size:11px; font-weight:700; border-radius:6px; padding:2px 7px; background:#e2e8f0; color:#4a5568;'>チェック済み</span>" : "")
+                  + "<a href='https://x.com/search?q=" + encodeURIComponent(a.artist) + "&src=typed_query' target='_blank' rel='noopener' style='flex:none; font-size:12px; font-weight:700; padding:7px 9px; border-radius:7px; background:#2b6cb0; color:#fff; text-decoration:none;'>Xで探す</a>")
+            + "<button data-uid='" + uid + "' onclick='sdXOpenEditor(this)' style='flex:none; font-size:12px; font-weight:700; padding:7px 9px; border-radius:7px; border:1px solid #cbd5e0; background:#fff; color:#2d3748; cursor:pointer;'>登録</button>"
+            + "</div>";
+    });
+    const total = p.uids.length, done = reg + chk;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    head.innerHTML = "<div style='display:flex; align-items:center; gap:8px; margin:10px 0 4px;'><span style='font-size:14px; font-weight:800;'>済み " + done + "件 / " + total + "件</span>"
+        + "<div style='flex:1; height:10px; background:#edf2f7; border-radius:5px; overflow:hidden;'><div style='height:100%; width:" + pct + "%; background:#2b6cb0;'></div></div></div>"
+        + "<div style='font-size:11px; color:#718096; margin:2px 0 6px;'>済み＝IDを登録した行＋チェックを付けた行。進み具合は「ドライブに保存する」で一緒に保存されます。</div>";
+    if (done >= total) {
+        const procSet = {};
+        p.processed.forEach(function(u) { procSet[u] = true; });
+        p.uids.forEach(function(u) { procSet[u] = true; });
+        const remain = sdXBlanksSorted().filter(function(a) { return !procSet[a.uid]; }).length;
+        body.innerHTML = "<div style='text-align:center; padding:16px 4px 4px;'><div style='font-size:17px; font-weight:800; margin-bottom:6px;'>この" + total + "件は終わりました 🎉</div>"
+            + "<div style='font-size:13px; color:#718096; margin-bottom:14px;'>登録 " + reg + "件／チェック " + chk + "件でした。" + (remain ? "<br>IDが空欄は残り " + remain + "件あります。" : "<br>IDが空欄のアーティストはもういません。") + "</div>"
+            + (remain ? "<button class='btn-action btn-save' onclick='sdXNextBatch()'>次の30件をはじめる</button>" : "")
+            + "</div>";
+    } else {
+        body.innerHTML = rows;
+    }
+}
+function sdXToggleCheck(el) {
+    const uid = el.getAttribute("data-uid");
+    const a = sdXArtistByUid(uid);
+    if (a && a.twitterId && a.twitterId.trim() !== "") return;
+    const p = sdXProgLoad();
+    if (!p) return;
+    if (p.checked[uid]) delete p.checked[uid]; else p.checked[uid] = true;
+    sdXProgSave(p);
+    const sc = document.getElementById("x-scroll");
+    const st = sc ? sc.scrollTop : 0;
+    sdXRenderManual();
+    if (sc) sc.scrollTop = st;
+}
+function sdXOpenEditor(el) {
+    const uid = el.getAttribute("data-uid");
+    window.__sdXReturn = true;
+    sdCloseXCandidates();
+    openArtistEditorModal(uid);
+}
+function sdXNextBatch() {
+    const p = sdXProgLoad();
+    const processed = p ? p.processed.concat(p.uids.filter(function(u) { return p.processed.indexOf(u) < 0; })) : [];
+    const procSet = {};
+    processed.forEach(function(u) { procSet[u] = true; });
+    const blanks = sdXBlanksSorted().filter(function(a) { return !procSet[a.uid]; });
+    if (!blanks.length) { sdXRenderManual(); return; }
+    sdXProgSave({ uids: blanks.slice(0, 30).map(function(a) { return a.uid; }), checked: {}, processed: processed });
+    sdXRenderManual();
+    const sc = document.getElementById("x-scroll");
+    if (sc) sc.scrollTop = 0;
+}
+function sdBackToXManual() {
+    sdShowXView("start");
+    sdXRenderManual();
+}
 async function sdOpenXCandidates() {
     const ov = document.getElementById("x-overlay");
     ov.style.display = "block";
     sdShowXView("start");
     document.getElementById("x-result-banner").style.display = "none";
-    const msg = document.getElementById("x-start-msg");
-    msg.textContent = "";
-    const allBlank = appState.artists.filter(function(a) { return !(a.twitterId && a.twitterId.trim() !== ""); }).length;
-    const targets = sdXTargets();
-    document.getElementById("x-start-target").textContent = "対象は " + targets.length + "件 です。" + (allBlank > targets.length ? "（IDが空欄は全部で " + allBlank + " 件あります。今回は先頭の " + targets.length + " 件を調べます）" : "");
-    const sb = document.getElementById("x-start-btn");
-    sb.disabled = !targets.length; sb.style.opacity = targets.length ? "" : ".5";
-    if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
-    const pendingAt = localStorage.getItem("sd_x_request_at") || "";
+    localStorage.removeItem("sd_x_request_at");
+    sdXRenderManual();
+    if (!sdIsLinked()) return;
     (async function() {
         try {
             await sdGetToken(true);
@@ -2348,15 +2456,9 @@ async function sdOpenXCandidates() {
             const cand = remote && remote.xCandidates ? remote.xCandidates : null;
             if (cand && cand.items && cand.items.length && cand.at !== sdXConsumedAt()) {
                 sdXCandCurrent = cand;
-                if (pendingAt) localStorage.removeItem("sd_x_request_at");
                 document.getElementById("x-result-banner").style.display = "flex";
-                return;
             }
-            if (pendingAt) {
-                sdXRequestedAt = pendingAt;
-                sdEnterXAnalyzing();
-            }
-        } catch (e) { /* 結果確認ができなくても調査開始は続けられる */ }
+        } catch (e) { /* バナーが出なくても作業リストは使える */ }
     })();
 }
 function sdShowXResult() {
@@ -2369,74 +2471,9 @@ function sdCloseXCandidates() {
     sdStopXPolling();
     document.getElementById("x-overlay").style.display = "none";
 }
-function sdEnterXAnalyzing() {
-    sdShowXView("analyzing");
-    document.getElementById("x-analyzing-msg").textContent = "";
-    sdUpdateXElapsed();
-    sdStopXPolling();
-    sdXPollTimer = setInterval(sdXPollTick, 20000);
-    sdXElapsedTimer = setInterval(sdUpdateXElapsed, 30000);
-    setTimeout(sdXPollTick, 10000);
-}
-function sdUpdateXElapsed() {
-    const el = document.getElementById("x-analyzing-elapsed");
-    if (!el || !sdXRequestedAt) return;
-    const mins = Math.max(0, Math.floor((Date.now() - Date.parse(sdXRequestedAt)) / 60000));
-    el.innerHTML = "モコがXで調べています（開始から " + mins + "分）。<br>結果が届いたら、この画面に一覧が出ます。";
-}
-async function sdXPollTick() {
-    try {
-        const remote = await sdFetchRemote();
-        const cand = remote && remote.xCandidates ? remote.xCandidates : null;
-        if (cand && cand.at !== sdXConsumedAt() && Date.parse(cand.at) > Date.parse(sdXRequestedAt)) {
-            sdStopXPolling();
-            localStorage.removeItem("sd_x_request_at");
-            if (cand.items && cand.items.length) {
-                sdXCandCurrent = cand;
-                document.getElementById("x-msg").textContent = "";
-                sdRenderXCandidates(cand);
-                sdShowXView("list");
-            } else {
-                sdShowXView("start");
-                document.getElementById("x-start-msg").textContent = "調査が終わりましたが、公式アカウントは見つかりませんでした。";
-            }
-        }
-    } catch (e) { /* 次のポーリングで再試行 */ }
-}
 function sdStopXPolling() {
     if (sdXPollTimer) { clearInterval(sdXPollTimer); sdXPollTimer = null; }
     if (sdXElapsedTimer) { clearInterval(sdXElapsedTimer); sdXElapsedTimer = null; }
-}
-async function sdStartXResearch() {
-    const msg = document.getElementById("x-start-msg");
-    if (!sdIsLinked()) { msg.textContent = "まだドライブと連携していません。設定の「Googleドライブ連携」から連携してください。"; return; }
-    const targets = sdXTargets().map(function(a) { return { name: a.artist, no: a.no }; });
-    if (!targets.length) { msg.textContent = "対象がいません（全員にIDが入っています）。"; return; }
-    const sb = document.getElementById("x-start-btn");
-    sb.disabled = true; sb.style.opacity = ".5";
-    msg.textContent = "モコへ依頼を送っています…";
-    try {
-        const token = await sdGetToken(true);
-        sdXRequestedAt = new Date().toISOString();
-        const payload = JSON.stringify({ app: "SmartD", kind: "x-research", at: sdXRequestedAt, targets: targets });
-        const meta = { name: "smartd-x-request.json", mimeType: "application/json", parents: ["root"] };
-        const form = new FormData();
-        form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
-        form.append("file", new Blob([payload], { type: "application/json" }));
-        const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-            method: "POST",
-            headers: { "Authorization": "Bearer " + token },
-            body: form
-        });
-        if (!res.ok) throw new Error("送信に失敗しました（" + res.status + "）");
-        localStorage.setItem("sd_x_request_at", sdXRequestedAt);
-        msg.textContent = "";
-        sdEnterXAnalyzing();
-    } catch (e) {
-        msg.textContent = "送れませんでした：" + e.message;
-    } finally {
-        sb.disabled = false; sb.style.opacity = "";
-    }
 }
 function sdXChip(i, val) {
     document.getElementById("xc-meth-" + i).value = val;
