@@ -712,7 +712,7 @@
                 <button id="tab-operation" class="nav-tab" onclick="switchView('operation')">管理表</button>
                 <button id="tab-settings" class="nav-tab" onclick="switchView('settings')">設定</button>
             </div>
-            <div class="version-tag">ver.0.2.20</div>
+            <div class="version-tag">ver.0.2.21</div>
         </div>
     </header>
 
@@ -772,6 +772,7 @@
                 <div style="font-size:13px; color:#2d3748; line-height:1.55; margin:8px 0;">今回の30件（50音順）です。「Xで探す」でXの検索結果が開きます。見つけたら「登録」からIDを入れ、見つからなかったら左の□にチェックを付けてください。</div>
                 <div id="x-manual-head"></div>
                 <div id="x-manual-body"></div>
+                <button class="btn-action" id="x-next-btn" style="display:none; margin-top:12px; background:#2b6cb0; color:#fff;" onclick="sdXGoNext()">次の30件へ進む ＞</button>
                 <button class="btn-action btn-export" style="margin-top:12px;" onclick="sdCloseXCandidates()">閉じる（続きは保存されます）</button>
             </div>
             <div id="x-view-list" style="display:none;">
@@ -2363,9 +2364,11 @@ function sdXRenderManual() {
     const head = document.getElementById("x-manual-head");
     const body = document.getElementById("x-manual-body");
     if (!head || !body) return;
+    const nextBtn = document.getElementById("x-next-btn");
     const p = sdXEnsureBatch();
     if (!p) {
         head.innerHTML = "";
+        if (nextBtn) nextBtn.style.display = "none";
         body.innerHTML = "<div style='font-size:14px; color:#2d3748; padding:14px 0;'>Xアカウントが空欄のアーティストはいません。</div>";
         return;
     }
@@ -2393,6 +2396,7 @@ function sdXRenderManual() {
     head.innerHTML = "<div style='display:flex; align-items:center; gap:8px; margin:10px 0 4px;'><span style='font-size:14px; font-weight:800;'>済み " + done + "件 / " + total + "件</span>"
         + "<div style='flex:1; height:10px; background:#edf2f7; border-radius:5px; overflow:hidden;'><div style='height:100%; width:" + pct + "%; background:#2b6cb0;'></div></div></div>"
         + "<div style='font-size:11px; color:#718096; margin:2px 0 6px;'>済み＝IDを登録した行＋チェックを付けた行。進み具合は「ドライブに保存する」で一緒に保存されます。</div>";
+    if (nextBtn) nextBtn.style.display = (done >= total) ? "none" : "";
     if (done >= total) {
         const procSet = {};
         p.processed.forEach(function(u) { procSet[u] = true; });
@@ -2440,6 +2444,30 @@ function sdXNextBatch() {
 function sdBackToXManual() {
     sdShowXView("start");
     sdXRenderManual();
+}
+function sdXGoNext() {
+    const p = sdXProgLoad();
+    if (!p || !p.uids.length) return;
+    let reg = 0, chk = 0;
+    p.uids.forEach(function(uid) {
+        const a = sdXArtistByUid(uid);
+        if (!a) return;
+        if (a.twitterId && a.twitterId.trim() !== "") reg++;
+        else if (p.checked[uid]) chk++;
+    });
+    const total = p.uids.length, undone = total - reg - chk;
+    if (undone <= 0) { sdXNextBatch(); return; }
+    const ov = document.getElementById("global-modal-overlay");
+    ov.style.zIndex = "2600";
+    document.getElementById("modal-title-node").innerText = "次の30件へ進みますか？";
+    document.getElementById("modal-body-node").innerHTML = "この" + total + "件の内訳：登録 " + reg + "件／チェック " + chk + "件／<b>未処理 " + undone + "件</b>。<br>進むと、この" + total + "件は終わりになります。未処理の" + undone + "件も、次からの分には出てきません。";
+    const cb = document.getElementById("modal-confirm-btn");
+    const nb = document.getElementById("modal-cancel-btn");
+    cb.innerText = "進む";
+    cb.onclick = function() { ov.style.zIndex = ""; nb.onclick = function() { closeConfirmationModal(); }; closeConfirmationModal(); sdXNextBatch(); };
+    nb.innerText = "やめておく";
+    nb.onclick = function() { ov.style.zIndex = ""; nb.onclick = function() { closeConfirmationModal(); }; closeConfirmationModal(); };
+    ov.classList.add("active");
 }
 async function sdOpenXCandidates() {
     const ov = document.getElementById("x-overlay");
